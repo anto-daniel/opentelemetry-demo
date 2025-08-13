@@ -101,6 +101,7 @@ data:
   
   admin-user: "YWRtaW4="
   admin-password: "YWRtaW4="
+  cx-key: "Y3h0cF9OMjRnT2hkc1RWWHFKaWVEc1ZWYjhUWWR5YktybnM="
   ldap-toml: ""
 ---
 # Source: opentelemetry-demo/charts/grafana/templates/configmap.yaml
@@ -267,6 +268,11 @@ data:
       spanmetrics: {}
     exporters:
       debug: {}
+      coralogix:
+        domain: "coralogix.in"
+        private_key: ${env:CX-KEY}
+        application_name: "otel-demo"
+        subsystem_name: "backend"
       opensearch:
         http:
           endpoint: http://opensearch:9200
@@ -368,6 +374,7 @@ data:
           exporters:
           - opensearch
           - debug
+          - coralogix
           processors:
           - k8sattributes
           - memory_limiter
@@ -379,6 +386,7 @@ data:
           exporters:
           - otlphttp/prometheus
           - debug
+          - coralogix
           processors:
           - k8sattributes
           - memory_limiter
@@ -394,6 +402,7 @@ data:
           - otlp
           - debug
           - spanmetrics
+          - coralogix
           processors:
           - k8sattributes
           - memory_limiter
@@ -437,12 +446,12 @@ data:
     {}
   prometheus.yml: |
     global:
-      evaluation_interval: 30s
-      scrape_interval: 5s
-      scrape_timeout: 3s
+      evaluation_interval: 60s
+      scrape_interval: 30s
+      scrape_timeout: 10s
     storage:
       tsdb:
-        out_of_order_time_window: 30m
+        out_of_order_time_window: 5m
     rule_files:
     - /etc/config/recording_rules.yml
     - /etc/config/alerting_rules.yml
@@ -10970,6 +10979,11 @@ spec:
                 secretKeyRef:
                   name: grafana
                   key: admin-password
+            - name: CX-KEY
+              valueFrom:
+                secretKeyRef:
+                  name: grafana
+                  key: cx-key
             - name: GF_INSTALL_PLUGINS
               valueFrom:
                 configMapKeyRef:
@@ -11256,12 +11270,15 @@ spec:
           image: "quay.io/prometheus/prometheus:v3.1.0"
           imagePullPolicy: "IfNotPresent"
           args:
-            - --storage.tsdb.retention.time=15d
+            - --storage.tsdb.retention.time=6h
+            - --storage.tsdb.retention.size=200MB
             - --config.file=/etc/config/prometheus.yml
             - --storage.tsdb.path=/data
             - --web.console.libraries=/etc/prometheus/console_libraries
             - --web.console.templates=/etc/prometheus/consoles
-            - --enable-feature=exemplar-storage
+            - --storage.tsdb.max-block-duration=2h
+            - --storage.tsdb.min-block-duration=2h
+            - --web.enable-lifecycle
             - --web.enable-otlp-receiver
           ports:
             - containerPort: 9090
@@ -11287,7 +11304,9 @@ spec:
             successThreshold: 1
           resources:
             limits:
-              memory: 300Mi
+              memory: 400Mi
+            requests:
+              memory: 200Mi
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config
